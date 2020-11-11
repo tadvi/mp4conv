@@ -21,13 +21,14 @@ var webTranscodeExtensions = map[string]bool{
 }
 
 type Transcoder struct {
-	workdir string
+	workdir        string
+	alreadyTouched map[string]bool
 
 	mu sync.Mutex
 }
 
 func NewTranscoder(workdir string) *Transcoder {
-	return &Transcoder{workdir: workdir}
+	return &Transcoder{workdir: workdir, alreadyTouched: make(map[string]bool)}
 }
 
 func (t *Transcoder) RunLoop(hour, limit int) {
@@ -60,12 +61,17 @@ func (t *Transcoder) StartTranscode(limit int) {
 	}
 
 	for i, path := range files {
+		if _, ok := t.alreadyTouched[path]; ok {
+			continue
+		}
 
 		if i >= limit {
 			break
 		}
 
+		log.Println(" --- ")
 		log.Println("Transcode start for:", path)
+		t.alreadyTouched[path] = true
 		t.transcode(path)
 		log.Println("Transcode finished for:", path)
 	}
@@ -123,18 +129,15 @@ func (t *Transcoder) transcode(srcname string) {
 	// Add as a running job.
 	log.Printf("Starting transcode job %q -> %q\n", srcname, dstname)
 
-	// Remove on completion.
-	defer func() {
-		// Remove the temp file if it still exists at this point.
-		os.Remove(tmpname)
-	}()
-
 	// Transcode
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("Error: job %q: %s\n", srcname, string(output))
+		log.Printf("Error: job %q:\n%s\n", srcname, string(output))
+		// Remove the temp file if it still exists at this point.
+		os.Remove(tmpname)
 		return
 	}
+	log.Printf("Success: job %q:\n%s\n", srcname, string(output))
 
 	// Rename temp file to real file.
 	if err := os.Rename(tmpname, dstname); err != nil {
@@ -159,9 +162,8 @@ func (t *Transcoder) transcode(srcname string) {
 	}
 
 	// Remove the source file.
-	if err := os.Remove(srcname); err != nil {
+	/*if err := os.Remove(srcname); err != nil {
 		log.Printf("Error: job %q: %s\n", srcname, err)
 		return
-	}
-
+	}*/
 }
