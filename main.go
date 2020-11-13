@@ -10,12 +10,15 @@ var (
 
 	hour  int
 	limit int
+
+	autoDelete bool
 )
 
 func init() {
 	flag.StringVar(&workdir, "workdir", ".", "work dir")
 	flag.IntVar(&hour, "hour", -1, "transcode hour, default value is to transcode now in batch mode")
-	flag.IntVar(&limit, "limit", 1, "limit how many files transcode per run")
+	flag.IntVar(&limit, "limit", 2, "limit how many files transcode per run")
+	flag.BoolVar(&autoDelete, "auto-delete", false, "auto delete original video file")
 }
 
 func main() {

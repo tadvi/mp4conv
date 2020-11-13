@@ -60,7 +60,9 @@ func (t *Transcoder) StartTranscode(limit int) {
 		log.Printf("Failed to read files for transcode: %v\n", err)
 	}
 
-	for i, path := range files {
+	var i int
+
+	for _, path := range files {
 		if _, ok := t.alreadyTouched[path]; ok {
 			continue
 		}
@@ -72,8 +74,11 @@ func (t *Transcoder) StartTranscode(limit int) {
 		log.Println(" --- ")
 		log.Println("Transcode start for:", path)
 		t.alreadyTouched[path] = true
-		t.transcode(path)
-		log.Println("Transcode finished for:", path)
+
+		if err := t.transcode(path); err != nil {
+			i++
+			log.Println("Transcode finished for:", path)
+		}
 	}
 }
 
@@ -89,23 +94,38 @@ func (t *Transcoder) filenames(srcname string) (string, string, string) {
 	return srcname, tmpname, dstname
 }
 
-func (t *Transcoder) transcode(srcname string) {
+func (t *Transcoder) transcode(srcname string) error {
 	srcname, tmpname, dstname := t.filenames(srcname)
+
+	if _, err := os.Stat(dstname); os.IsExist(err) {
+		log.Printf("Destination file exists %q skipping\n", dstname)
+		return err
+	}
 
 	srcfi, err := os.Stat(srcname)
 	if err != nil {
 		log.Printf("Error: job %q: %v\n", srcname, err)
-		return
+		return err
 	}
 
 	// Find ffmpeg
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		log.Printf("Error: can not find ffmpeg: %v\n", err)
-		return
+		return err
 	}
 
-	cmd, err := exec.Command(ffmpeg,
+	cmd := exec.Command(ffmpeg,
+		"-y",
+		"-i", srcname,
+		"-vcodec", "libx264",
+		"-acodec", "aac",
+		"-movflags", "faststart", // make streaming work
+		"-preset", "veryfast",
+		tmpname,
+	)
+
+	/*cmd := exec.Command(ffmpeg,
 		"-y",
 		"-i", srcname,
 		"-codec:v", "libx264",
@@ -120,11 +140,7 @@ func (t *Transcoder) transcode(srcname string) {
 		"-movflags", "faststart", // make streaming work
 		"-max_muxing_queue_size", "500", // handle sparse audio/video frames (see: https://trac.ffmpeg.org/ticket/6375#comment:2)
 		tmpname,
-	), nil
-	if err != nil {
-		log.Printf("Error: ffmpeg failed: %v\n", err)
-		return
-	}
+	)*/
 
 	// Add as a running job.
 	log.Printf("Starting transcode job %q -> %q\n", srcname, dstname)
@@ -135,14 +151,14 @@ func (t *Transcoder) transcode(srcname string) {
 		log.Printf("Error: job %q:\n%s\n", srcname, string(output))
 		// Remove the temp file if it still exists at this point.
 		os.Remove(tmpname)
-		return
+		return err
 	}
 	log.Printf("Success: job %q:\n%s\n", srcname, string(output))
 
 	// Rename temp file to real file.
 	if err := os.Rename(tmpname, dstname); err != nil {
 		log.Printf("Error: job %q: %s\n", srcname, err)
-		return
+		return err
 	}
 
 	// check that our new file is a reasonable size.
@@ -151,19 +167,22 @@ func (t *Transcoder) transcode(srcname string) {
 	dstfi, err := os.Stat(dstname)
 	if err != nil {
 		log.Printf("Error: job %q: %s\n", srcname, err)
-		return
+		return err
 	}
 	if dstfi.Size() < minsize {
 		log.Printf("Error: job %q: transcoded is too small (%d vs %d); deleting.\n", srcname, dstfi.Size(), minsize)
 		if err := os.Remove(dstname); err != nil {
 			log.Println(err)
 		}
-		return
+		return err
 	}
 
 	// Remove the source file.
-	/*if err := os.Remove(srcname); err != nil {
-		log.Printf("Error: job %q: %s\n", srcname, err)
-		return
-	}*/
+	if autoDelete {
+		if err := os.Remove(srcname); err != nil {
+			log.Printf("Error: job %q: %s\n", srcname, err)
+			return nil
+		}
+	}
+	return nil
 }
