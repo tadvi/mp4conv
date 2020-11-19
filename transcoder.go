@@ -49,7 +49,7 @@ func (t *Transcoder) StartTranscode(limit int) {
 
 		ext := filepath.Ext(path)
 		if webTranscodeExtensions[ext] {
-			fmt.Printf("Adding file: %s\n", path)
+			fmt.Printf("Media file found: %s\n", path)
 			files = append(files, path)
 		}
 		return nil
