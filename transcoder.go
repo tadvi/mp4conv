@@ -21,23 +21,21 @@ var webTranscodeExtensions = map[string]bool{
 }
 
 type Transcoder struct {
-	workdir        string
+	workDir        string
+	outDir         string
 	alreadyTouched map[string]bool
 
 	mu sync.Mutex
 }
 
-func NewTranscoder(workdir string) *Transcoder {
-	return &Transcoder{workdir: workdir, alreadyTouched: make(map[string]bool)}
+func NewTranscoder(workDir, outDir string) *Transcoder {
+	return &Transcoder{workDir: workDir, outDir: outDir, alreadyTouched: make(map[string]bool)}
 }
 
-func (t *Transcoder) RunLoop(hour, limit int) {
+func (t *Transcoder) RunLoop(limit int) {
 	for {
-		now := time.Now()
-		if now.Hour() == hour && now.Minute() == 0 {
-			t.StartTranscode(limit)
-		}
-		time.Sleep(time.Minute)
+		t.StartTranscode(limit)
+		time.Sleep(15 * time.Minute)
 	}
 }
 
@@ -47,7 +45,7 @@ func (t *Transcoder) StartTranscode(limit int) {
 	defer t.mu.Unlock()
 
 	var files []string
-	err := filepath.Walk(t.workdir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(t.workDir, func(path string, info os.FileInfo, err error) error {
 
 		ext := filepath.Ext(path)
 		if webTranscodeExtensions[ext] {
@@ -82,7 +80,7 @@ func (t *Transcoder) StartTranscode(limit int) {
 	}
 }
 
-func (t *Transcoder) filenames(srcname string) (string, string, string) {
+func (t *Transcoder) filenames(srcname, outDir string) (string, string, string) {
 	srcname = filepath.Clean(srcname)
 	dir := filepath.Dir(srcname)           // "/some dir"
 	ext := filepath.Ext(srcname)           // ".avi"
@@ -90,12 +88,12 @@ func (t *Transcoder) filenames(srcname string) (string, string, string) {
 	noext := strings.TrimSuffix(base, ext) // "somewhere"
 
 	tmpname := fmt.Sprintf("%s/.%s.mp4", dir, noext)
-	dstname := fmt.Sprintf("%s/%s.mp4", dir, noext)
+	dstname := fmt.Sprintf("%s/%s.mp4", outDir, noext)
 	return srcname, tmpname, dstname
 }
 
 func (t *Transcoder) transcode(srcname string) error {
-	srcname, tmpname, dstname := t.filenames(srcname)
+	srcname, tmpname, dstname := t.filenames(srcname, t.outDir)
 
 	if _, err := os.Stat(dstname); os.IsExist(err) {
 		log.Printf("Destination file exists %q skipping\n", dstname)
@@ -144,6 +142,7 @@ func (t *Transcoder) transcode(srcname string) error {
 
 	// Add as a running job.
 	log.Printf("Starting transcode job %q -> %q\n", srcname, dstname)
+	defer log.Println(" --- ")
 
 	// Transcode
 	output, err := cmd.CombinedOutput()
@@ -153,7 +152,7 @@ func (t *Transcoder) transcode(srcname string) error {
 		os.Remove(tmpname)
 		return err
 	}
-	log.Printf("Success: job %q:\n%s\n", srcname, string(output))
+	//log.Printf("Success: job %q:\n%s\n", srcname, string(output))
 
 	// Rename temp file to real file.
 	if err := os.Rename(tmpname, dstname); err != nil {
@@ -162,7 +161,6 @@ func (t *Transcoder) transcode(srcname string) error {
 	}
 
 	// check that our new file is a reasonable size.
-	// TODO: ffprobe and check duration matches?
 	minsize := srcfi.Size() / 5
 	dstfi, err := os.Stat(dstname)
 	if err != nil {
