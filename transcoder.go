@@ -18,6 +18,7 @@ var webTranscodeExtensions = map[string]bool{
 	".mpeg": true,
 	".mpg":  true,
 	".m4a":  true,
+	".webm": true,
 }
 
 type Transcoder struct {
